@@ -1,6 +1,7 @@
 ﻿
 Imports Newtonsoft.Json
 Imports Newtonsoft.Json.Linq
+Imports SMUI.MultiPlatform.Core.SharedFunction
 
 Public Class ItemInfoReader
     Public InstallStatus As Objects.InstallStatus = Objects.InstallStatus.Unknow
@@ -59,17 +60,17 @@ Public Class ItemInfoReader
     Public Sub ReadItemInfo(ItemPath As String, CalculateType As Objects.ItemCalculateType, Optional GamePath As String = "")
         ErrorString = ""
         If FileIO.FileSystem.DirectoryExists(ItemPath) = False Then
-            ErrorString = "[SMUI CORE ERROR] Item path not exist: " & ItemPath : Exit Sub
+            ErrorString = DYString.SMUICOREERROR & DYString.ItemPathDoesNotExist & ItemPath : Exit Sub
         End If
         If FileIO.FileSystem.FileExists(FileIO.FileSystem.CombinePath(ItemPath, "Code")) = False Then
-            ErrorString = "[SMUI CORE ERROR] Item not deployed. (No Code file)" : Exit Sub
+            ErrorString = DYString.SMUICOREERROR & DYString.ThisItemDonotHaveCodeFile & ItemPath : Exit Sub
         End If
         If CalculateType.InstallStatus = True Or CalculateType.InstalledVersion = True Or CalculateType.All = True Then
             If GamePath = "" Then
-                ErrorString = "[SMUI CORE ERROR] This operation needs to set the game path." : Exit Sub
+                ErrorString = DYString.SMUICOREERROR & DYString.ThisOperationNeedsToSetGamePath : Exit Sub
             End If
             If FileIO.FileSystem.DirectoryExists(GamePath) = False Then
-                ErrorString = "[SMUI CORE ERROR] Game path not exist." : Exit Sub
+                ErrorString = DYString.SMUICOREERROR & DYString.GamePathNotExist & GamePath : Exit Sub
             End If
         End If
 
@@ -92,7 +93,8 @@ Public Class ItemInfoReader
 
             For i = 0 To line.Length - 1
                 If Replace(line(i), " ", "") Is Nothing Then Continue For
-                Select Case Replace(line(i), " ", "").ToUpper
+                Dim LineData As String = Replace(line(i), " ", "").ToUpper
+                Select Case LineData
                     Case "CDCD", "CDCP"
                         If i = line.Length - 1 Then
                             Continue For
@@ -348,8 +350,8 @@ LineEnd:
                                 InstallStatus = Objects.InstallStatus.FileNotReplaced
                                 Continue For
                             End If
-                            Dim a1 As String = SharedFunction.FileEncryptSHA256(FileIO.FileSystem.CombinePath(ItemPath, x1))
-                            Dim a2 As String = SharedFunction.FileEncryptSHA256(FileIO.FileSystem.CombinePath(GamePath, x2))
+                            Dim a1 As String = CalculateSHA256(FileIO.FileSystem.CombinePath(ItemPath, x1))
+                            Dim a2 As String = CalculateSHA256(FileIO.FileSystem.CombinePath(GamePath, x2))
                             Select Case InstallStatus
                                 Case -1
                                     If a1.ToLower = a2.ToLower Then
@@ -381,6 +383,31 @@ LineEnd:
                             End Select
                         End If
 
+                    Case "CDGCF-SHA"
+                        If CalculateType.InstallStatus = True Then
+                            If i = line.Length - 1 Or i = line.Length - 2 Then Continue For
+                            Dim x1 As String = line(i + 1)
+                            Dim x2 As String = line(i + 2)
+                            i += 2
+                            Select Case InstallStatus
+                                Case 1, 2, 3
+                                Case -1
+                                    If FileIO.FileSystem.FileExists(FileIO.FileSystem.CombinePath(GamePath, x2)) = True Then
+                                        Dim a1 As String = CalculateSHA256(FileIO.FileSystem.CombinePath(ItemPath, x1))
+                                        Dim a2 As String = CalculateSHA256(FileIO.FileSystem.CombinePath(GamePath, x2))
+                                        If a1.ToLower = a2.ToLower Then
+                                            InstallStatus = Objects.InstallStatus.FileCopiedAndSHAVerified
+                                        Else
+                                            InstallStatus = Objects.InstallStatus.FileCopiedAndSHAFailed
+                                        End If
+                                    Else
+                                        InstallStatus = Objects.InstallStatus.FileNotCopied
+                                        ReDim Preserve NotCopiedFiles(NotCopiedFiles.Length)
+                                        NotCopiedFiles(NotCopiedFiles.Length - 1) = x2
+                                    End If
+                            End Select
+                        End If
+
                     Case "CDF"
                         If CalculateType.InstallStatus = True Then
                             If i = line.Length - 1 Or i = line.Length - 2 Then Continue For
@@ -398,6 +425,35 @@ LineEnd:
                             Case -1
                                 InstallStatus = Objects.InstallStatus.CoverContent
                         End Select
+
+                    Case Else
+                        If LineData.Contains("CDGCF-SHA-") Then
+                            If CalculateType.InstallStatus = True Then
+                                If i = line.Length - 1 Or i = line.Length - 2 Then Continue For
+                                Dim data1 As String() = line(i + 1).Split("|")
+                                Dim x1 As String = data1(0)
+                                Dim x2 As String = Mid(data1(1), 2)
+                                Dim bytesize As Long = Mid(LineData, Len("CDGCF-SHA-") + 1)
+                                i += 2
+                                Select Case InstallStatus
+                                    Case 1, 2, 3
+                                    Case -1
+                                        If FileIO.FileSystem.FileExists(FileIO.FileSystem.CombinePath(GamePath, x2)) = True Then
+                                            Dim a1 As String = CalculateSHA256(FileIO.FileSystem.CombinePath(ItemPath, x1), bytesize)
+                                            Dim a2 As String = CalculateSHA256(FileIO.FileSystem.CombinePath(GamePath, x2), bytesize)
+                                            If a1.ToLower = a2.ToLower Then
+                                                InstallStatus = Objects.InstallStatus.FileCopiedAndSHAVerified
+                                            Else
+                                                InstallStatus = Objects.InstallStatus.FileCopiedAndSHAFailed
+                                            End If
+                                        Else
+                                            InstallStatus = Objects.InstallStatus.FileNotCopied
+                                            ReDim Preserve NotCopiedFiles(NotCopiedFiles.Length)
+                                            NotCopiedFiles(NotCopiedFiles.Length - 1) = x2
+                                        End If
+                                End Select
+                            End If
+                        End If
 
                 End Select
             Next
